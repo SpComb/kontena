@@ -1,11 +1,11 @@
 require 'clamp'
+require_relative 'callback'
 
 class Kontena::Command < Clamp::Command
 
   attr_accessor :arguments
   attr_reader :result
   attr_reader :exit_code
-
 
   def self.inherited(where)
     return if where.has_subcommands?
