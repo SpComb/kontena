@@ -58,7 +58,7 @@ module Kontena
         ACCEPT => CONTENT_JSON,
         CONTENT_TYPE => CONTENT_JSON,
         'User-Agent' => "kontena-cli/#{Kontena::Cli::VERSION}"
-      }.merge(default_headers)
+      }.merge(options[:default_headers])
 
       if token
         if token.kind_of?(String)
@@ -82,19 +82,19 @@ module Kontena
       ssl_context.cert_store.set_default_paths
       ssl_context.verify_mode = OpenSSL::SSL::VERIFY_PEER | OpenSSL::SSL::VERIFY_FAIL_IF_NO_PEER_CERT
       ssl_context.ca_file = Excon.defaults[:ssl_ca_file] if Excon.defaults[:ssl_ca_file]
-			ssl_client = OpenSSL::SSL::SSLSocket.new(tcp_client, ssl_context)
-			ssl_client.connect
-			cert = OpenSSL::X509::Certificate.new(ssl_client.peer_cert)
-			ssl_client.sysclose
-			tcp_client.close
-				
-			certprops = OpenSSL::X509::Name.new(cert.issuer).to_a
-			issuer = certprops.select { |name, data, type| name == "O" }.first[1]
-			{ 
-				:valid_on => cert.not_before,
-				:valid_until => cert.not_after,
-				:issuer => issuer
-			}
+      ssl_client = OpenSSL::SSL::SSLSocket.new(tcp_client, ssl_context)
+      ssl_client.connect
+      cert = OpenSSL::X509::Certificate.new(ssl_client.peer_cert)
+      ssl_client.sysclose
+      tcp_client.close
+        
+      certprops = OpenSSL::X509::Name.new(cert.issuer).to_a
+      issuer = certprops.select { |name, data, type| name == "O" }.first[1]
+      { 
+        :valid_on => cert.not_before,
+        :valid_until => cert.not_after,
+        :issuer => issuer
+      }
     rescue
       nil
     end
@@ -124,6 +124,89 @@ module Kontena
       else
         {}
       end
+    end
+
+    # OAuth2 client_id from ENV KONTENA_CLIENT_ID or client CLIENT_ID constant
+    #
+    # @return [String]
+    def client_id
+      ENV['KONTENA_CLIENT_ID'] || CLIENT_ID
+    end
+
+    # OAuth2 client_secret from ENV KONTENA_CLIENT_SECRET or client CLIENT_SECRET constant
+    #
+    # @return [String]
+    def client_secret
+      ENV['KONTENA_CLIENT_SECRET'] || CLIENT_SECRET
+    end
+
+    # Requests path supplied as argument and returns true if the request was a success.
+    # For checking if the current authentication is valid.
+    #
+    # @param [String] token_verify_path a path that requires authentication
+    # @return [Boolean]
+    def authentication_ok?(token_verify_path)
+      return false unless token
+      return false unless token['access_token']
+      return false unless token_verify_path
+
+      uri = URI.parse(token_verify_path)
+      host_options = {}
+      host_options[:host] = uri.host if uri.host
+      host_options[:port] = uri.port if uri.port
+
+      logger.debug 'Authentication verification request token validations pass'
+      final_path = token_verify_path.gsub(/\:access\_token/, token['access_token'])
+      request({path: final_path}.merge(host_options))
+      true
+    rescue
+      false
+    end
+
+    # Calls the code exchange endpoint in token's config to exchange an authorization_code
+    # to a access_token
+    def exchange_code(code)
+      return nil unless token_account
+      return nil unless token_account['token_endpoint']
+      uri = URI.parse(token_account['token_endpoint'])
+      host_options = {}
+      host_options[:host] = uri.host if uri.host
+      host_options[:port] = uri.port if uri.port
+
+      if uri.host
+        client = Kontena::Client.new("#{uri.scheme}://#{uri.host}:#{uri.port}")
+      else
+        client = self
+      end
+
+      client.request(
+        {
+          http_method: token_account['token_method'].downcase.to_sym,
+          path: uri.path,
+          headers: { CONTENT_TYPE => token_account['token_post_content_type'] },
+          body: {
+            'grant_type' => 'authorization_code',
+            'code' => code,
+            'client_id' => Kontena::Client::CLIENT_ID,
+            'client_secret' => Kontena::Client::CLIENT_SECRET
+          },
+          expects: [200,201],
+          auth: false
+        }
+      )
+    rescue
+      logger.debug "Code exchange exception: #{$!} #{$!.message}\n#{$!.backtrace}"
+      nil
+    end
+
+    # Return server version from a Kontena master by requesting '/'
+    #
+    # @return [String] version_string
+    def server_version
+      request(auth: false, expects: 200)['version']
+    rescue
+      logger.debug "Server version exception: #{$!} #{$!.message}"
+      nil
     end
 
     # OAuth2 client_id from ENV KONTENA_CLIENT_ID or client CLIENT_ID constant
