@@ -103,7 +103,6 @@ describe 'OAuth2 API' do
   end
 
   context '/oauth2/token' do
-
     context 'grant_type = authorization_code' do
       it 'returns a token in exchange when given a valid code' do
         coded_token = AccessToken.create(user: david, with_code: true, scopes: ['user'])
