@@ -60,9 +60,15 @@ module Kontena
         'User-Agent' => "kontena-cli/#{Kontena::Cli::VERSION}"
       }.merge(options[:default_headers])
 
-      @path_prefix = options[:path_prefix] || '/v1/'
+      if token 
+        if token.kind_of?(String)
+          token = { 'access_token' => token }
+        end
+        @default_headers.merge!('Authorization' => "Bearer #{token}")
+      end
 
-      logger.debug "Client initialized with api_url: #{@api_url} token: #{!token.nil?} prefix: #{@path_prefix}"
+      @api_url = api_url
+      @path_prefix = '/v1/'
     end
 
     # Returns info hash about host SSL certificate
