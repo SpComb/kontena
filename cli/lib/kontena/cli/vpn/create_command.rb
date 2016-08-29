@@ -36,7 +36,7 @@ module Kontena::Cli::Vpn
       }
       client(token).post("grids/#{current_grid}/services", data)
       client(token).post("services/#{current_grid}/vpn/deploy", {})
-      ShellSpinner "Deploying vpn service " do
+      ShellSpinner "* Deploying vpn service " do
         sleep 1 until client(token).get("services/#{current_grid}/vpn")['state'] != 'deploying'
       end
       puts "OpenVPN service is now started (udp://#{vpn_ip}:1194)."

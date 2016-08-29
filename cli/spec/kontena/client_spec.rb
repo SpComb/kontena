@@ -14,9 +14,9 @@ describe Kontena::Client do
   let(:account_class)  { Kontena::Cli.const_defined?('Config', false) ? Kontena::Cli::Config::Account : OpenStruct }
 
   let(:master) { server_class.new(url: 'https://localhost', name: 'master') }
-  let(:token) { token_class.new(access_token: '1234', refresh_token: '5678', expires_at: nil, parent_type: :master, parent: master) }
-  let(:expiring_token) { token_class.new(access_token: '1234', refresh_token: '5678', expires_at: Time.now.utc + 1000, parent_type: :master, parent: master) }
-  let(:expired_token) { token_class.new(access_token: '1234', refresh_token: '5678', expires_at: Time.now.utc - 1000, parent_type: :master, parent: master) }
+  let(:token) { token_class.new(access_token: '1234', refresh_token: '5678', expires_at: nil, parent_type: :master, parent_name: 'master') }
+  let(:expiring_token) { token_class.new(access_token: '1234', refresh_token: '5678', expires_at: Time.now.utc + 1000, parent_type: :master, parent_name: 'master') }
+  let(:expired_token) { token_class.new(access_token: '1234', refresh_token: '5678', expires_at: Time.now.utc - 1000, parent_type: :master, parent_name: 'master') }
 
   before(:each) do
     allow(subject).to receive(:http_client)
@@ -25,6 +25,7 @@ describe Kontena::Client do
     else
       config = Class.new { include Kontena::Cli::Common}.new
     end
+    config.servers << master
     allow(config).to receive(:find_server).and_return(master)
     allow(config).to receive(:current_master).and_return(master)
     allow(config).to receive(:account).and_return(account_class.new(token_verify_path: '/v1/user', token_endpoint: '/oauth2/token', authorization_endpoint: '/oauth2/authorize'))
@@ -55,7 +56,7 @@ describe Kontena::Client do
     end
 
     it 'tries to refresh an expired token' do
-      allow(master).to receive(:token).and_return(expired_token)
+      master.token = expired_token
       client = Kontena::Client.new(master.url, master.token)
       allow(client).to receive(:token_refresh_path).and_return('/oauth2/token')
       expect(client.http_client).to receive(:request).with(hash_including(path: '/oauth2/token', method: :post)).and_return(OpenStruct.new(status: 201, headers: {'Content-Type' => 'application/json'}, body: '{"access_token": "abcd"}'))

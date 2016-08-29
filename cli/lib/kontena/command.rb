@@ -1,5 +1,4 @@
 require 'clamp'
-require_relative 'callback'
 
 class Kontena::Command < Clamp::Command
 
@@ -7,7 +6,10 @@ class Kontena::Command < Clamp::Command
   attr_reader :result
   attr_reader :exit_code
 
+
   def self.inherited(where)
+    return if where.has_subcommands?
+
     name_parts = where.name.split('::')[-2, 2]
 
     unless name_parts.nil?
@@ -30,10 +32,12 @@ class Kontena::Command < Clamp::Command
 
     # Run all #after_load callbacks for this command.
     [name_parts.last, :all].compact.uniq.each do |cmd_type|
-      if Kontena::Callback.callbacks.fetch(name_parts.first, {}).fetch(cmd_type, nil)
-        Kontena::Callback.callbacks[name_parts.first][cmd_type].each do |cb|
-          if cb.instance_methods.include?(:after_load)
-            cb.new(where).after_load
+      [name_parts.first, :all].compact.uniq.each do |cmd_class|
+        if Kontena::Callback.callbacks.fetch(cmd_class, {}).fetch(cmd_type, nil)
+          Kontena::Callback.callbacks[cmd_class][cmd_type].each do |cb|
+            if cb.instance_methods.include?(:after_load)
+              cb.new(where).after_load
+            end
           end
         end
       end
@@ -56,6 +60,15 @@ class Kontena::Command < Clamp::Command
     end
   end
 
+  # Overwrite Clamp's banner command. Calling banner multiple times 
+  # will now add lines to the banner message instead of overwriting
+  # the whole message. This is useful if callbacks add banner messages.
+  #
+  # @param [String] message
+  def self.banner(msg)
+    self.description = [self.description, msg].compact.join("\n")
+  end
+
   def run(arguments)
     ENV["DEBUG"] && puts("Running #{self} -- callback command type = #{Hash[self.class.command_type.first, self.class.command_type.last]}")
     @arguments = arguments
@@ -70,6 +83,8 @@ class Kontena::Command < Clamp::Command
       @exit_code = exc.status
     end
     run_callbacks :after
-    exit @exit_code 
+    exit(@exit_code) if @exit_code.to_i > 0
   end
 end
+
+require_relative 'callback'

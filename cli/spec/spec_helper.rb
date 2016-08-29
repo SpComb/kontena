@@ -5,12 +5,15 @@
 #
 # See http://rubydoc.info/gems/rspec-core/RSpec/Core/Configuration
 
+begin
+  require 'simplecov'
+  SimpleCov.start
+rescue LoadError
+end
+
 require 'clamp'
 require 'ruby_dig'
-require 'kontena/command'
-require 'kontena/cli/common'
-require 'kontena/cli/grid_options'
-require 'kontena/client'
+require 'kontena_cli'
 
 RSpec.configure do |config|
   config.run_all_when_everything_filtered = true
@@ -32,6 +35,14 @@ RSpec.configure do |config|
     RSpec::Mocks.space.proxy_for(File).reset
     RSpec::Mocks.space.proxy_for(Kontena::Cli::Config).reset
     File.unlink(Kontena::Cli::Config.default_config_filename) if File.exist?(Kontena::Cli::Config.default_config_filename)
+  end
+
+  config.around(:each) do |example|
+    begin
+      example.run
+    rescue SystemExit
+      puts "Got SystemExit: #{$!.message}"
+    end
   end
 end
 

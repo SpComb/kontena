@@ -98,7 +98,7 @@ module Kontena::Cli::Registry
       }
       client(token).post("grids/#{current_grid}/services", data)
       client(token).post("services/#{current_grid}/registry/deploy", {})
-      ShellSpinner "Deploying registry service " do
+      ShellSpinner "* Deploying registry service " do
         sleep 1 until client(token).get("services/#{current_grid}/registry")['state'] != 'deploying'
       end
       puts "\n"
