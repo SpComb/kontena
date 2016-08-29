@@ -42,7 +42,7 @@ module Kontena
         servers << Server.new(
           url: ENV['KONTENA_URL'], 
           name: 'default',
-          token: Token.new(access_token: ENV['KONTENA_TOKEN']),
+          token: Token.new(access_token: ENV['KONTENA_TOKEN'], parent_type: :master, parent_name: 'default'),
           grid: ENV['KONTENA_GRID'],
           parent_type: :master,
           parent_name: 'default'
@@ -79,6 +79,7 @@ module Kontena
           else
             server = Server.new(server_data)
           end
+          server.account ||= 'master'
           servers << server
         end
 
@@ -106,10 +107,15 @@ module Kontena
       def kontena_account_data
         {
           name: 'kontena',
-          url: 'https://auth.kontena.io',
-          token_endpoint: '/v1/oauth2/token',
-          authorization_endpoint: '/v1/authorizations',
-          token_verify_path: '/v1/authorizations',
+          url: 'https://kontena.io',
+          token_endpoint: 'https://auth2.kontena.io/v1/oauth2/token',
+          authorization_endpoint: 'https://cloud-beta.kontena.io/login/oauth/authorize',
+          userinfo_endpoint: 'https://auth2.kontena.io/v1/user',
+          token_post_content_type: 'application/x-www-form-urlencoded',
+          code_requires_basic_auth: false,
+          token_method: 'post',
+          scope: 'user',
+          client_id: nil
         }
       end
 
@@ -118,8 +124,10 @@ module Kontena
           name: 'master',
           token_endpoint: '/oauth2/token',
           authorization_endpoint: '/oauth2/authorize',
-          redirection_endpoint: '/cb',
-          token_verify_path: '/v1/user'
+          userinfo_endpoint: '/v1/user',
+          token_post_content_type: 'application/json',
+          token_method: 'post',
+          code_requires_basic_auth: false
         }
       end
 
@@ -206,7 +214,9 @@ module Kontena
         token = Token.new(
           access_token: data.delete('token'),
           refresh_token: data.delete('refresh_token'),
-          expires_at: data.delete('token_expires_at')
+          expires_at: data.delete('token_expires_at'),
+          parent_type: :master,
+          parent_name: data['name'] || data[:name]
         )
         server = Server.new(data.merge(token: token))
         if (existing_index = find_server_index(server.name))
@@ -436,6 +446,11 @@ module Kontena
       class Server < OpenStruct
         include TokenSerializer
         include ConfigurationInstance
+
+        def initialize(*args)
+          super
+          @table[:account] ||= 'master'
+        end
       end
 
       class Token < OpenStruct
@@ -460,12 +475,24 @@ module Kontena
           expires? && expires_at && expires_at.to_i < Time.now.utc.to_i
         end
 
+        def account
+          return @account if @account
+          @account = 
+            case parent_type
+            when :master then config.find_account(parent.account)
+            when :account then parent
+            else
+              nil
+            end
+        end
+
         def parent
           return nil unless parent_type
           return nil unless parent_name
-          if parent_type == :master
+          case parent_type
+          when :master
             config.find_server(parent_name)
-          elsif parent_type == :account
+          when :account
             config.find_account(parent_name)
           else
             nil

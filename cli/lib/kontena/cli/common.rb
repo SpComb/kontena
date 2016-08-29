@@ -49,6 +49,17 @@ module Kontena
         config.current_account
       end
 
+      def kontena_account
+        @kontena_account ||= config.find_account(ENV['KONTENA_ACCOUNT'] || 'kontena')
+      end
+
+      def kontena_auth?
+        return false unless kontena_account
+        return false unless kontena_account.token
+        return false unless kontena_account.token.access_token
+        true
+      end
+
       def api_url_version
         client.server_version
       end
@@ -184,7 +195,7 @@ LOGO
         server = config.current_master
         if server
           puts [
-            'Authenticated to'.colorize(:green),
+            'Authenticated to Kontena Master'.colorize(:green),
             server.name.colorize(:yellow),
             'at'.colorize(:green),
             server.url.colorize(:yellow),
@@ -194,8 +205,20 @@ LOGO
         else
           puts "Master not selected".colorize(:red)
         end
-    end
-
+        if kontena_account
+          if kontena_account.token && kontena_account.token.access_token
+            begin
+              puts [
+                "Authenticated to Kontena Cloud at".colorize(:green),
+                kontena_account.url.colorize(:yellow),
+                "as".colorize(:green),
+                kontena_account.username.colorize(:yellow)
+              ].join(' ')
+            rescue
+            end
+          end
+        end
+      end
     end
   end
 end
