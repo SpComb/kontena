@@ -15,8 +15,8 @@ end
 module Kontena
   class Client
 
-    CLIENT_ID     = ''
-    CLIENT_SECRET = ''
+    CLIENT_ID     = ENV['KONTENA_CLIENT_ID']     || '43f42956a70f4287ae98d803513a4e01'.freeze
+    CLIENT_SECRET = ENV['KONTENA_CLIENT_SECRET'] || '4368fa79c7284f5899377e8b46fb652d'.freeze
 
     CONTENT_URLENCODED = 'application/x-www-form-urlencoded'.freeze
     CONTENT_JSON       = 'application/json'.freeze
@@ -38,9 +38,9 @@ module Kontena
     # Initialize api client
     #
     # @param [String] api_url
-    # @param [String,Hash,Kontena::Cli::Config::Token] token
-    # @param [Hash] default_headers
-    def initialize(api_url, token = nil, default_headers = {})
+    # @param [Kontena::Cli::Config::Token,Hash] access_token
+    # @param [Hash] options
+    def initialize(api_url, token = nil, options = {})
       @api_url, @token, @options = api_url, token, options
       uri = URI.parse(@api_url)
       @host = uri.host
@@ -60,7 +60,7 @@ module Kontena
         'User-Agent' => "kontena-cli/#{Kontena::Cli::VERSION}"
       }.merge(default_headers)
 
-      if token 
+      if token
         if token.kind_of?(String)
           @token = { 'access_token' => token }
         else
@@ -149,12 +149,54 @@ module Kontena
       return false unless token
       return false unless token['access_token']
       return false unless token_verify_path
+
+      uri = URI.parse(token_verify_path)
+      host_options = {}
+      host_options[:host] = uri.host if uri.host
+      host_options[:port] = uri.port if uri.port
+
       logger.debug 'Authentication verification request token validations pass'
       final_path = token_verify_path.gsub(/\:access\_token/, token['access_token'])
-      request(path: final_path)
+      request({path: final_path}.merge(host_options))
       true
     rescue
       false
+    end
+
+    # Calls the code exchange endpoint in token's config to exchange an authorization_code
+    # to a access_token
+    def exchange_code(code)
+      return nil unless token_account
+      return nil unless token_account['token_endpoint']
+      uri = URI.parse(token_account['token_endpoint'])
+      host_options = {}
+      host_options[:host] = uri.host if uri.host
+      host_options[:port] = uri.port if uri.port
+
+      if uri.host
+        client = Kontena::Client.new("#{uri.scheme}://#{uri.host}:#{uri.port}")
+      else
+        client = self
+      end
+
+      client.request(
+        {
+          http_method: token_account['token_method'].downcase.to_sym,
+          path: uri.path,
+          headers: { CONTENT_TYPE => token_account['token_post_content_type'] },
+          body: {
+            'grant_type' => 'authorization_code',
+            'code' => code,
+            'client_id' => Kontena::Client::CLIENT_ID,
+            'client_secret' => Kontena::Client::CLIENT_SECRET
+          },
+          expects: [200,201],
+          auth: false
+        }
+      )
+    rescue
+      logger.debug "Code exchange exception: #{$!} #{$!.message}\n#{$!.backtrace}"
+      nil
     end
 
     # Return server version from a Kontena master by requesting '/'
@@ -248,7 +290,7 @@ module Kontena
     # @param expects [Array] raises unless response status code matches this list.
     # @param auth [Boolean] use token authentication default = true
     # @return [Hash, String] response parsed response object
-    def request(http_method: :get, path:'/', body: nil, query: {}, headers: {}, response_block: nil, expects: [200, 201], auth: true)
+    def request(http_method: :get, path:'/', body: nil, query: {}, headers: {}, response_block: nil, expects: [200, 201], host: nil, port: nil, auth: true)
 
       retried ||= false
 
@@ -262,6 +304,10 @@ module Kontena
 
       request_headers.merge!('Content-Length' => body_content.bytesize)
 
+      host_options = {}
+      host_options[:host] = host if host
+      host_options[:port] = port if port
+
       request_options = {
           method: http_method,
           expects: Array(expects),
@@ -269,7 +315,7 @@ module Kontena
           headers: request_headers,
           body: body_content,
           query: query
-      }
+      }.merge(host_options)
 
       request_options.merge!(response_block: response_block) if response_block
 
@@ -296,20 +342,6 @@ module Kontena
       handle_error_response
     end
 
-    # Determine refresh_token request path from token object data
-    #
-    # @return [String]
-    def token_refresh_path
-      if token.respond_to?(:parent) && token.parent.respond_to?(:account) && token.respond_to?(:config)
-        # Token belongs to a server that belongs to an account, read endpoint from
-        # account
-        token.config.find_account(token.parent.account).token_endpoint
-      elsif token.respond_to?(:parent)
-        # Token is for an account
-        token.parent.token_endpoint
-      end
-    end
-
     # Build a token refresh request param hash
     #
     # @return [Hash]
@@ -322,29 +354,49 @@ module Kontena
       }
     end
 
+    # Accessor to token's account settings
+    def token_account
+      return {} unless token
+      if token.respond_to?(:account)
+        token.account
+      elsif token.kind_of?(Hash) && token['account'].kind_of?(String)
+        config.find_account(token['account'])
+      else
+        {}
+      end
+    end
+
     # Perform refresh token request to auth provider.
     # Updates the client's Token object and writes changes to 
     # configuration.
     #
     # @param [Boolean] use_basic_auth? When true, use basic auth authentication header
     # @return [Boolean] success?
-    def refresh_token(use_basic_auth = false)
+    def refresh_token
       logger.debug "Performing token refresh"
       return false if token.nil?
       return false if token['refresh_token'].nil?
-      path = token_refresh_path
-      logger.debug "Token refresh url: #{api_url} path: #{path || 'unknown'}"
-      return false unless path
+      uri = URI.parse(token_account['token_endpoint'])
+      endpoint_data = { path: uri.path }
+      endpoint_data[:host] = uri.host if uri.host
+      endpoint_data[:port] = uri.port if uri.port
+
+      logger.debug "Token refresh endpoint: #{endpoint_data.inspect}"
+
+      return false unless endpoint_data[:path]
 
       response = request(
-        http_method: :post,
-        path: path,
-        body: refresh_request_params,
-        headers: { 
-          CONTENT_TYPE => CONTENT_URLENCODED
-        }.merge(use_basic_auth ? basic_auth_header : {}),
-        expects: [200, 201, 400, 401, 403],
-        auth: false
+        {
+          http_method: token_account['token_method'].downcase.to_sym,
+          body: refresh_request_params,
+          headers: { 
+            CONTENT_TYPE => token_account['token_post_content_type']
+          }.merge(
+            token_account['code_requires_basic_auth'] ? basic_auth_header : {}
+          ),
+          expects: [200, 201, 400, 401, 403],
+          auth: false
+        }.merge(endpoint_data)
       )
 
       if response && response['access_token']
@@ -359,7 +411,7 @@ module Kontena
         false
       end
     rescue
-      logger.debug "Access token refresh exception: #{$!} - #{$!.message}"
+      logger.debug "Access token refresh exception: #{$!} - #{$!.message} #{$!.backtrace}"
       false
     end
 
@@ -369,7 +421,7 @@ module Kontena
     #
     # @return [Boolean]
     def token_is_for_master?
-      token && (token['parent_type'] == 'master' || !token['parent']['account'].nil?)
+      token_account['name'] == 'master'
     end
 
 

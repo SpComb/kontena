@@ -30,13 +30,15 @@ class Kontena::Callback
   end
 
   def self.run_callbacks(cmd_type, state, obj)
-    [cmd_type.last, :all].compact.uniq.each do |cmd|
-      callbacks.fetch(cmd_type.first, {}).fetch(cmd, []).each do |klass|
-        if klass.instance_methods.include?(state)
-          cb = klass.new(obj)
-          if cb.send(state).kind_of?(FalseClass)
-            ENV["DEBUG"] && puts("Execution aborted by #{klass}")
-            exit 1
+    [cmd_type.last, :all].compact.uniq.each do |cmdtype|
+      [cmd_type.first, :all].compact.uniq.each do |cmdclass|
+        callbacks.fetch(cmdclass, {}).fetch(cmdtype, []).each do |klass|
+          if klass.instance_methods.include?(state)
+            cb = klass.new(obj)
+            if cb.send(state).kind_of?(FalseClass)
+              ENV["DEBUG"] && puts("Execution aborted by #{klass}")
+              exit 1
+            end
           end
         end
       end
