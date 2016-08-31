@@ -20,9 +20,12 @@ class User
 
   validates :email,
             uniqueness: true,
-            presence: true,
+            presence: true
+  validates :email,
             format: { with: /\A([^@\s]+)@((?:[-a-z0-9]+\.)+[a-z]{2,})\Z/i },
             unless: :is_local_admin?
+
+
 
   index({ email: 1 }, { unique: true })
   index({ external_id: 1 }, { unique: true, sparse: true })
