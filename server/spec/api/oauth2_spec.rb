@@ -105,7 +105,7 @@ describe 'OAuth2 API' do
   context '/oauth2/token' do
 
     before(:each) do 
-      allow(AuthProvider.instance).to receive(:seconds_since_last_request).and return(0)
+      allow(AuthProvider.instance).to receive(:seconds_since_last_request).and_return(0)
     end
 
     context 'grant_type = authorization_code' do
