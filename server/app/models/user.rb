@@ -34,7 +34,7 @@ class User
   # Fake setter. When true, an invite code will be generated
   def with_invite=(boolean)
     if boolean
-      self[:invite_code] = SecureRandom.hex(4)
+      self[:invite_code] = SecureRandom.hex(6)
     end
   end
 
